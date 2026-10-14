@@ -10,7 +10,7 @@ Sundial 是一个轻量、可扩展、类型安全的 Go 配置 SDK，提供内�
 ## 为什么选择 Sundial
 
 - **类型安全访问**：应用直接读取自己定义的配置结构体，不再使用字符串路径和 `any`。
-- **快速读取**：`Get` 返回内存中已解析的快照，无需再次解码或深拷贝。
+- **快速读取**：`Get` 返回内存中已解析的配置，无需再次解码或深拷贝。
 - **持久化写入**：`Update` 有条件地保存完整的强类型配置文档。
 - **版本历史**：支持查看历史版本和恢复配置。
 - **实时更新**：自动重新加载将外部变化同步到内存。
@@ -67,8 +67,7 @@ func main() {
         log.Fatal(err)
     }
 
-    entry := store.Get()
-    fmt.Println(entry.Value.Port)
+    fmt.Println(store.Get().Port)
 
     if _, err := store.Update(ctx, func(config *Config) error {
         config.Port = 9090
@@ -79,10 +78,33 @@ func main() {
 }
 ```
 
-`Get` 返回共享的只读配置快照及其版本，无 error 返回，也不进行编码、解码或
-深拷贝。不要修改返回值，包括其中的 map、slice 和指针。Go 不强制只读，需要
+`Get() T` 直接返回当前配置。需要配对的配置与版本时，使用 `GetEntry() Entry[T]`，
+通过一次原子读取取得二者：
+
+```go
+entry := store.GetEntry()
+fmt.Println(entry.Value.Port, entry.Revision.ID)
+```
+
+两个方法都返回共享的只读值，无 error 返回，也不进行编码、解码或深拷贝。
+不要修改返回的配置，包括其中的 map、slice 和指针。Go 不强制只读，需要
 调用方遵守这个约定。`Update`、`RestoreRevision` 成功后返回的结果，以及 `OnChange` 回调
 收到的配置，同样是共享只读快照。
+
+普通读取直接返回配置，需要当前配置与版本配对时使用 `Entry[T]`：
+
+| API | 返回值或回调签名 |
+| --- | --- |
+| `Get()` | `T` |
+| `GetEntry()` | `Entry[T]` |
+| `Update(ctx, modify)` | `(Entry[T], error)` |
+| `RestoreRevision(ctx, targetID, currentID)` | `(Entry[T], error)` |
+| `GetRevision(ctx, revisionID)` | `(T, Revision, error)` |
+| `WithOnChange(callback)` | `func(Entry[T])` |
+
+旧 API 迁移：将 `Get().Value` 改为 `Get()`；原先需要完整 Entry 或版本信息的调用
+改用 `GetEntry()`。`Update`、`RestoreRevision`、`WithOnChange` 和 `GetRevision`
+的签名保持不变。
 
 普通修改直接调用 `Update(ctx, func(*T) error)`，不需要先调用 `Get`。它是 Client
 唯一的普通写入接口。内部先解码缓存的配置原文，生成独立草稿，再执行修改回调；

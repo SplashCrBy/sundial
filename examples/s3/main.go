@@ -68,7 +68,7 @@ func run() error {
 		return err
 	}
 
-	entry := store.Get()
+	entry := store.GetEntry()
 	printEntry("loaded", entry)
 
 	if *port >= 0 {

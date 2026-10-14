@@ -22,7 +22,7 @@ type Client[T any] struct {
 
 // Entry pairs a configuration value with its revision.
 type Entry[T any] struct {
-	// Value is shared and read-only when returned by Get, Update,
+	// Value is shared and read-only when returned by GetEntry, Update,
 	// RestoreRevision or OnChange.
 	Value T
 	// Revision describes the immutable revision paired with Value.
@@ -30,7 +30,7 @@ type Entry[T any] struct {
 }
 
 // New loads an existing configuration and reloads it until ctx is canceled.
-// Get returns shared read-only values; use Update to publish changes.
+// Get and GetEntry return shared read-only values; use Update to publish changes.
 func New[T any](ctx context.Context, provider Provider, opts ...Option[T]) (*Client[T], error) {
 	normalized := normalizeOptions(opts)
 	s := &Client[T]{
@@ -54,9 +54,16 @@ func New[T any](ctx context.Context, provider Provider, opts ...Option[T]) (*Cli
 	return s, nil
 }
 
-// Get returns the current shared read-only Entry without encoding or decoding.
+// Get returns the current shared read-only configuration without encoding or decoding.
 // Callers must not modify its maps, slices, pointers or other referenced data.
-func (s *Client[T]) Get() Entry[T] {
+// Use GetEntry when the configuration and its revision are needed together.
+func (s *Client[T]) Get() T {
+	return s.snapshot.Load().value
+}
+
+// GetEntry returns the current configuration and its revision from one atomic read.
+// Its Value follows the same shared read-only contract as Get.
+func (s *Client[T]) GetEntry() Entry[T] {
 	return s.entry(s.snapshot.Load())
 }
 
