@@ -10,7 +10,7 @@ in-memory reads, persistent writes, and live updates.
 ## Why Sundial
 
 - **Type-safe access** — applications read their own configuration struct instead of string paths and `any` values.
-- **Fast reads** — `Get` returns the already parsed in-memory snapshot without decoding or deep copying.
+- **Fast reads** — `Get` returns the already parsed in-memory configuration without decoding or deep copying.
 - **Persistent writes** — `Update` conditionally saves one complete typed configuration document.
 - **Version history** — browse historical revisions and restore configuration.
 - **Live updates** — automatic reload keeps memory synchronized with external changes.
@@ -68,8 +68,7 @@ func main() {
         log.Fatal(err)
     }
 
-    entry := store.Get()
-    fmt.Println(entry.Value.Port)
+    fmt.Println(store.Get().Port)
 
     if _, err := store.Update(ctx, func(config *Config) error {
         config.Port = 9090
@@ -80,11 +79,34 @@ func main() {
 }
 ```
 
-`Get` returns a shared read-only configuration snapshot with its revision, without
-an error return, encoding, decoding or deep copying. Do not modify its value,
+`Get() T` returns the current configuration directly. Use `GetEntry() Entry[T]`
+when you need the configuration and its revision paired from one atomic read:
+
+```go
+entry := store.GetEntry()
+fmt.Println(entry.Value.Port, entry.Revision.ID)
+```
+
+Both methods return shared read-only values without an error return, encoding,
+decoding or deep copying. Do not modify the returned configuration,
 including nested maps, slices and pointers. Go does not enforce this read-only
 contract; callers must follow it. Successful `Update` and `RestoreRevision` results and values
 passed to `OnChange` have the same shared read-only contract.
+
+Ordinary reads return the configuration directly; versioned current state uses `Entry[T]`:
+
+| API | Return values or callback |
+| --- | --- |
+| `Get()` | `T` |
+| `GetEntry()` | `Entry[T]` |
+| `Update(ctx, modify)` | `(Entry[T], error)` |
+| `RestoreRevision(ctx, targetID, currentID)` | `(Entry[T], error)` |
+| `GetRevision(ctx, revisionID)` | `(T, Revision, error)` |
+| `WithOnChange(callback)` | `func(Entry[T])` |
+
+Migration from the previous API: replace `Get().Value` with `Get()`, and use
+`GetEntry()` wherever you previously needed the complete entry or revision.
+`Update`, `RestoreRevision`, `WithOnChange` and `GetRevision` keep their existing signatures.
 
 For ordinary edits, call `Update(ctx, func(*T) error)` directly; no preceding `Get`
 is needed. This is the client's only ordinary write interface. Internally, it
@@ -93,7 +115,7 @@ callback, then encodes and decodes the result to validate it and isolate the
 stored snapshot before publishing with revision protection. Each update uses
 one encode and two decodes; the snapshot retains the source document.
 Any encoding, decoding, callback or publication failure leaves the cached
-snapshot unchanged. The returned entry is shared read-only. Do not modify the
+snapshot unchanged. The returned configuration is shared read-only. Do not modify the
 callback's draft concurrently with the call. The callback must not call `Update`,
 `Reload` or `RestoreRevision` on the same client because they acquire the same
 write lock.

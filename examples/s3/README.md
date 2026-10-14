@@ -32,9 +32,11 @@ Revision IDs use ULID. S3 user metadata uses `parent-id` to link each revision
 to its parent.
 
 The example creates its client with `sundial.New` and the YAML codec; callers do
-not need to supply a clone function. `Get` returns a shared read-only typed
-snapshot without encoding, decoding, deep copying or an error return. Callers
-must not modify it; Go does not enforce this contract.
+not need to supply a clone function. `Get` returns the typed configuration directly;
+`GetEntry` pairs the configuration with its revision from one atomic read. This
+example uses `GetEntry` to log both. Both methods return shared read-only values
+without encoding, decoding, deep copying or an error return. Callers must not
+modify them; Go does not enforce this contract.
 
 `Update` is the client's only ordinary write interface and needs no preceding
 `Get` for editing. Internally, it decodes the cached source document into an
