@@ -132,6 +132,34 @@ the stale write returns `ErrConflict`, without automatic merging or retries.
 Canceling the context stops automatic reload.
 Failed writes or reloads leave the last valid in-memory configuration unchanged.
 
+## Static configuration
+
+Use `provider/static` for a fixed, read-only configuration document:
+
+```go
+import staticprovider "github.com/sundayfun/sundial/provider/static"
+
+provider := staticprovider.NewProvider([]byte(`{"port":8080}`))
+client, err := sundial.New[Config](ctx, provider)
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println(client.Get().Port)
+```
+
+The provider copies the supplied document and returns a zero revision. It uses
+the same client and codec pipeline as other providers. Pass `WithCodec` when the
+document uses another format. Empty or invalid documents fail the initial load.
+
+`Put` and `PutIfRevision` return `sundial.ErrReadOnly`. A client `Update` still
+runs its modification and codec steps before the provider rejects publication;
+the cached configuration remains unchanged. `Reload` rereads the same document,
+and history operations return `ErrUnsupported`.
+
+The provider does not access external storage. Its watcher notifies once, then
+waits for context cancellation without polling. Cancel the client context when
+it is no longer needed.
+
 ## Documentation
 
 - [S3 example](examples/s3) — setup, initial publication, and conditional writes.

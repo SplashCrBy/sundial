@@ -9,6 +9,8 @@ var (
 	ErrConflict = errors.New("sundial: conflict")
 	// ErrEmptyDocument reports an empty configuration document.
 	ErrEmptyDocument = errors.New("sundial: empty configuration document")
+	// ErrReadOnly reports a write rejected by a read-only Provider.
+	ErrReadOnly = errors.New("sundial: read-only provider")
 	// ErrUnsupported reports that a Provider does not implement an optional capability.
 	ErrUnsupported = errors.New("sundial: unsupported operation")
 	// ErrInvalidRevision reports corrupt immutable revision data.
