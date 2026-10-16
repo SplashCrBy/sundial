@@ -123,6 +123,31 @@ Codec 每次 `Decode` 必须创建独立的可变对象，不能保留或复用�
 如果另一个 Client 先发布了新版本，过期写入会返回 `ErrConflict`，不会自动合并或重试。
 取消 context 会停止自动加载。写入或加载失败时，保留内存中上一份有效配置。
 
+## 静态配置
+
+固定的只读配置文档使用 `provider/static`：
+
+```go
+import staticprovider "github.com/sundayfun/sundial/provider/static"
+
+provider := staticprovider.NewProvider([]byte(`{"port":8080}`))
+client, err := sundial.New[Config](ctx, provider)
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println(client.Get().Port)
+```
+
+Provider 复制传入的文档，返回零值版本，沿用其他 Provider 相同的客户端和 Codec
+流程。文档使用其他格式时，传入 `WithCodec`。空文档或无效文档会导致初始加载失败。
+
+`Put` 和 `PutIfRevision` 返回 `sundial.ErrReadOnly`。客户端 `Update` 仍先执行
+修改回调和 Codec 流程，再由 Provider 拒绝发布；缓存配置保持不变。
+`Reload` 重新读取相同文档，历史版本操作返回 `ErrUnsupported`。
+
+Provider 不访问外部存储。Watcher 通知一次后等待 context 取消，不进行轮询。
+客户端不再使用时，请取消其 context。
+
 ## 文档
 
 - [S3 示例](examples/s3)：环境配置、首次发布和条件写入。
