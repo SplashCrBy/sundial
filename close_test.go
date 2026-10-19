@@ -16,7 +16,9 @@ import (
 
 // Failure cases: Close returns before Watch exits; canceling one client cancels
 // its parent; concurrent/repeated Close panics or blocks; polling continues after
-// Close; parent cancellation prevents Close from returning; failed New starts Watch.
+// Close; parent cancellation prevents Close from returning; failed New starts Watch;
+// reads or provider operations succeed after Close; a queued write bypasses closure;
+// an already returned snapshot is invalidated by Close.
 type delayedCloseWatcher struct {
 	*providertesting.Provider
 
@@ -42,6 +44,7 @@ func TestCloseWaitsForWatcherAndPreservesParent(t *testing.T) {
 		}
 		client, err := sundial.New[testConfig](parent, provider)
 		require.NoError(t, err)
+		entry := client.GetEntry()
 		closed := make(chan struct{})
 		go func() { client.Close(); close(closed) }()
 		<-provider.canceled
@@ -54,8 +57,9 @@ func TestCloseWaitsForWatcherAndPreservesParent(t *testing.T) {
 		require.NoError(t, parent.Err())
 		close(provider.release)
 		<-closed
-		assert.Equal(t, 7, client.Get().Counter)
-		assert.Equal(t, 7, client.GetEntry().Value.Counter)
+		assert.Equal(t, 7, entry.Value.Counter)
+		assert.PanicsWithValue(t, sundial.ErrClosed, func() { client.Get() })
+		assert.PanicsWithValue(t, sundial.ErrClosed, func() { client.GetEntry() })
 		client.Close()
 	})
 }
@@ -72,10 +76,14 @@ func TestCloseStopsPolling(t *testing.T) {
 		provider.SetData([]byte(`{"counter":2}`))
 		time.Sleep(time.Minute)
 		assert.Equal(t, reads, provider.GetCount())
-		assert.Equal(t, 1, client.Get().Counter)
-		// Explicit operations continue to use their own contexts after Close.
-		_, err = client.Update(t.Context(), func(cfg *testConfig) error { cfg.Counter = 3; return nil })
-		require.ErrorIs(t, err, sundial.ErrConflict)
+		require.ErrorIs(t, client.Reload(t.Context()), sundial.ErrClosed)
+		_, err = client.Update(t.Context(), func(*testConfig) error {
+			t.Error("modify called after Close")
+			return nil
+		})
+		require.ErrorIs(t, err, sundial.ErrClosed)
+		assert.Equal(t, reads, provider.GetCount())
+		assert.Zero(t, provider.PutIfRevisionCount())
 	})
 }
 
@@ -116,5 +124,56 @@ func TestFailedNewDoesNotStartWatcher(t *testing.T) {
 		require.ErrorIs(t, err, sundial.ErrNotFound)
 		assert.Nil(t, client)
 		// Any Watch goroutine here would remain blocked and fail the synctest bubble.
+	})
+}
+
+func TestCloseRejectsHistoryOperations(t *testing.T) {
+	t.Parallel()
+	client, err := sundial.New[testConfig](t.Context(), staticprovider.NewProvider([]byte(`{"counter":1}`)))
+	require.NoError(t, err)
+	client.Close()
+	_, _, err = client.GetRevision(t.Context(), "revision")
+	require.ErrorIs(t, err, sundial.ErrClosed)
+	_, err = client.ListRevisions(t.Context(), sundial.ListRevisionsOptions{})
+	require.ErrorIs(t, err, sundial.ErrClosed)
+	_, err = client.RestoreRevision(t.Context(), "revision", "")
+	require.ErrorIs(t, err, sundial.ErrClosed)
+}
+
+func TestCloseRejectsConcurrentUpdate(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		provider := providertesting.New([]byte(`{"counter":1}`))
+		client, err := sundial.New[testConfig](t.Context(), provider)
+		require.NoError(t, err)
+		started := make(chan struct{})
+		release := make(chan struct{})
+		first := make(chan error, 1)
+		go func() {
+			_, updateErr := client.Update(t.Context(), func(cfg *testConfig) error {
+				close(started)
+				<-release
+				cfg.Counter = 2
+				return nil
+			})
+			first <- updateErr
+		}()
+		<-started
+		second := make(chan error, 1)
+		attempting := make(chan struct{})
+		go func() {
+			close(attempting)
+			_, updateErr := client.Update(t.Context(), func(*testConfig) error {
+				t.Error("queued modify called after Close")
+				return nil
+			})
+			second <- updateErr
+		}()
+		<-attempting
+		client.Close()
+		close(release)
+		require.NoError(t, <-first)
+		require.ErrorIs(t, <-second, sundial.ErrClosed)
+		assert.Equal(t, 1, provider.PutIfRevisionCount())
 	})
 }

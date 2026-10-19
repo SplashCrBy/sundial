@@ -178,9 +178,11 @@ automatic reload goroutine, including native provider watchers and fallback
 polling. Repeated and concurrent calls are safe. The parent
 context is unaffected; canceling that context also stops automatic reloads.
 
-`Get` and `GetEntry` continue to return the last accepted snapshot. Explicit
-operations such as `Update` and `Reload` remain available with their own contexts;
-`Close` does not close the provider or abort those independently started calls.
+After `Close`, `Get` and `GetEntry` panic with `ErrClosed`; `Update`, `Reload`,
+`GetRevision`, `ListRevisions`, and `RestoreRevision` return `ErrClosed`.
+Previously returned configuration values remain valid. Operations already in
+progress may complete; queued writes and reloads check closure after acquiring
+the write lock. `Close` does not close the provider.
 Providers must honor Watch context cancellation for shutdown to complete.
 
 Reload callbacks run synchronously on the watcher goroutine. Do not call `Close`

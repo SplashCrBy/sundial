@@ -18,6 +18,7 @@ type Client[T any] struct {
 
 	cancelWatch context.CancelFunc
 	watchDone   chan struct{}
+	closed      atomic.Bool
 
 	writeMu  sync.Mutex
 	snapshot atomic.Pointer[snapshot[T]]
@@ -42,6 +43,7 @@ func New[T any](ctx context.Context, provider Provider, opts ...Option[T]) (*Cli
 		logger:      normalized.Logger,
 		cancelWatch: nil,
 		watchDone:   nil,
+		closed:      atomic.Bool{},
 		writeMu:     sync.Mutex{},
 		snapshot:    atomic.Pointer[snapshot[T]]{},
 	}
@@ -66,12 +68,13 @@ func New[T any](ctx context.Context, provider Provider, opts ...Option[T]) (*Cli
 	return s, nil
 }
 
-// Close stops automatic reloads and waits for the watcher to exit.
-// Repeated and concurrent calls are safe. Reads and explicit operations remain
-// available. The parent context is unaffected.
+// Close makes the client unusable, stops automatic reloads and waits for the watcher to exit.
+// Repeated and concurrent calls are safe. Operations already in progress may complete.
+// The parent context and provider are unaffected.
 // Do not call Close synchronously from Watch or reload callbacks: it waits for
 // that same watcher to return.
 func (s *Client[T]) Close() {
+	s.closed.Store(true)
 	s.cancelWatch()
 	<-s.watchDone
 }
@@ -79,13 +82,21 @@ func (s *Client[T]) Close() {
 // Get returns the current shared read-only configuration without encoding or decoding.
 // Callers must not modify its maps, slices, pointers or other referenced data.
 // Use GetEntry when the configuration and its revision are needed together.
+// Get panics with ErrClosed after Close.
 func (s *Client[T]) Get() T {
+	if s.closed.Load() {
+		panic(ErrClosed)
+	}
 	return s.snapshot.Load().value
 }
 
 // GetEntry returns the current configuration and its revision from one atomic read.
 // Its Value follows the same shared read-only contract as Get.
+// GetEntry panics with ErrClosed after Close.
 func (s *Client[T]) GetEntry() Entry[T] {
+	if s.closed.Load() {
+		panic(ErrClosed)
+	}
 	return s.entry(s.snapshot.Load())
 }
 
@@ -95,9 +106,13 @@ func (s *Client[T]) GetEntry() Entry[T] {
 // If modify, encoding, decoding or publication fails, the accepted snapshot is preserved.
 // The returned Entry is shared and read-only. modify must not call Update,
 // Reload or RestoreRevision on this Client because they acquire the same lock.
+// Update returns ErrClosed after Close.
 func (s *Client[T]) Update(ctx context.Context, modify func(*T) error) (Entry[T], error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if s.closed.Load() {
+		return Entry[T]{}, ErrClosed
+	}
 
 	current := s.snapshot.Load()
 	draft, err := decodeConfig[T](s.codec, current.data)
