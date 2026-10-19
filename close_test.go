@@ -19,6 +19,7 @@ import (
 // Close; parent cancellation prevents Close from returning; failed New starts Watch.
 type delayedCloseWatcher struct {
 	*providertesting.Provider
+
 	canceled chan struct{}
 	release  chan struct{}
 }
