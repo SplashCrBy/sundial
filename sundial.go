@@ -16,6 +16,9 @@ type Client[T any] struct {
 	codec    codec.Codec
 	logger   *slog.Logger
 
+	cancelWatch context.CancelFunc
+	watchDone   chan struct{}
+
 	writeMu  sync.Mutex
 	snapshot atomic.Pointer[snapshot[T]]
 }
@@ -29,16 +32,18 @@ type Entry[T any] struct {
 	Revision Revision
 }
 
-// New loads an existing configuration and reloads it until ctx is canceled.
+// New loads an existing configuration and reloads it until ctx is canceled or Close is called.
 // Get and GetEntry return shared read-only values; use Update to publish changes.
 func New[T any](ctx context.Context, provider Provider, opts ...Option[T]) (*Client[T], error) {
 	normalized := normalizeOptions(opts)
 	s := &Client[T]{
-		provider: provider,
-		codec:    normalized.Codec,
-		logger:   normalized.Logger,
-		writeMu:  sync.Mutex{},
-		snapshot: atomic.Pointer[snapshot[T]]{},
+		provider:    provider,
+		codec:       normalized.Codec,
+		logger:      normalized.Logger,
+		cancelWatch: nil,
+		watchDone:   nil,
+		writeMu:     sync.Mutex{},
+		snapshot:    atomic.Pointer[snapshot[T]]{},
 	}
 
 	loaded, err := s.loadSnapshot(ctx)
@@ -49,9 +54,28 @@ func New[T any](ctx context.Context, provider Provider, opts ...Option[T]) (*Cli
 	s.snapshot.Store(loaded)
 	s.logger.DebugContext(ctx, "loaded configuration", "revision_id", loaded.revision.ID)
 
-	go s.watch(ctx, normalized.Reload)
+	watchCtx, cancel := context.WithCancel(ctx)
+	s.cancelWatch = cancel
+	s.watchDone = make(chan struct{})
+	go func() {
+		defer close(s.watchDone)
+		defer cancel()
+		s.watch(watchCtx, normalized.Reload)
+	}()
 
 	return s, nil
+}
+
+// Close stops automatic reloads and waits for the background watcher to exit.
+// It is safe to call repeatedly or concurrently and does not cancel the parent
+// context. Close always returns nil. Reads retain the last snapshot; explicit
+// operations such as Update and Reload still use their own contexts.
+// Close must not be called synchronously from a provider Watch method or an
+// OnChange/OnError callback, because it waits for that same watcher to return.
+func (s *Client[T]) Close() error {
+	s.cancelWatch()
+	<-s.watchDone
+	return nil
 }
 
 // Get returns the current shared read-only configuration without encoding or decoding.

@@ -53,8 +53,7 @@ type Config struct {
 }
 
 func main() {
-    ctx, cancel := context.WithCancel(context.Background())
-    defer cancel()
+    ctx := context.Background()
 
     store, err := s3provider.New[Config](ctx, &s3provider.Config{
         Region: "us-east-1",
@@ -67,6 +66,8 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
+
+    defer store.Close()
 
     fmt.Println(store.Get().Port)
 
@@ -144,6 +145,7 @@ client, err := sundial.New[Config](ctx, provider)
 if err != nil {
     log.Fatal(err)
 }
+defer client.Close()
 fmt.Println(client.Get().Port)
 ```
 
@@ -157,7 +159,7 @@ the cached configuration remains unchanged. `Reload` rereads the same document,
 and history operations return `ErrUnsupported`.
 
 The provider does not access external storage. Its watcher notifies once, then
-waits for context cancellation without polling. Cancel the client context when
+waits for context cancellation without polling. Call `client.Close()` when
 it is no longer needed.
 
 ## Documentation
@@ -168,3 +170,19 @@ it is no longer needed.
 ## License
 
 [MIT](LICENSE)
+
+## Client lifecycle
+
+Call `Close()` when a client is no longer needed. It cancels and waits for its
+automatic reload goroutine, including native provider watchers and fallback
+polling. Repeated and concurrent calls are safe and return nil. The parent
+context is unaffected; canceling that context also stops automatic reloads.
+
+`Get` and `GetEntry` continue to return the last accepted snapshot. Explicit
+operations such as `Update` and `Reload` remain available with their own contexts;
+`Close` does not close the provider or abort those independently started calls.
+Providers must honor Watch context cancellation for shutdown to complete.
+
+Reload callbacks run synchronously on the watcher goroutine. Do not call `Close`
+from `OnChange`, `OnError`, or a provider's `Watch` method: signal the owner to
+close the client after the callback returns instead.
