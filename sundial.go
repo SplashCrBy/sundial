@@ -6,9 +6,13 @@ import (
 	"log/slog"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/sundayfun/sundial/codec"
 )
+
+// closeWarningAfter reports slow shutdown without limiting how long Close waits.
+const closeWarningAfter = 5 * time.Second
 
 // Client manages one typed configuration document and its in-memory state.
 type Client[T any] struct {
@@ -71,12 +75,32 @@ func New[T any](ctx context.Context, provider Provider, opts ...Option[T]) (*Cli
 // Close makes the client unusable, stops automatic reloads and waits for the watcher to exit.
 // Repeated and concurrent calls are safe. Operations already in progress may complete.
 // The parent context and provider are unaffected.
+// A slow shutdown logs a warning after five seconds and continues waiting.
 // Do not call Close synchronously from Watch or reload callbacks: it waits for
 // that same watcher to return.
 func (s *Client[T]) Close() {
-	s.closed.Store(true)
+	if !s.closed.CompareAndSwap(false, true) {
+		s.cancelWatch()
+		<-s.watchDone
+		return
+	}
+
+	started := time.Now()
+	s.logger.Info("closing sundial client")
 	s.cancelWatch()
-	<-s.watchDone
+	timer := time.NewTimer(closeWarningAfter)
+	defer timer.Stop()
+	select {
+	case <-s.watchDone:
+	case <-timer.C:
+		select {
+		case <-s.watchDone:
+		default:
+			s.logger.Warn("waiting for automatic reload to stop", "duration", time.Since(started))
+			<-s.watchDone
+		}
+	}
+	s.logger.Info("closed sundial client", "duration", time.Since(started))
 }
 
 // Get returns the current shared read-only configuration without encoding or decoding.

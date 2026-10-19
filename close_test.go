@@ -1,7 +1,10 @@
 package sundial_test
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -18,7 +21,8 @@ import (
 // its parent; concurrent/repeated Close panics or blocks; polling continues after
 // Close; parent cancellation prevents Close from returning; failed New starts Watch;
 // reads or provider operations succeed after Close; a queued write bypasses closure;
-// an already returned snapshot is invalidated by Close.
+// an already returned snapshot is invalidated by Close; slow Close is silent or
+// returns early; repeated Close duplicates lifecycle logs.
 type delayedCloseWatcher struct {
 	*providertesting.Provider
 
@@ -36,18 +40,21 @@ func (p *delayedCloseWatcher) Watch(ctx context.Context, _ func() error) error {
 func TestCloseWaitsForWatcherAndPreservesParent(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
+		var output bytes.Buffer
+		logger := slog.New(slog.NewTextHandler(&output, nil))
 		parent, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		provider := &delayedCloseWatcher{
 			Provider: providertesting.New([]byte(`{"counter":7}`)),
 			canceled: make(chan struct{}), release: make(chan struct{}),
 		}
-		client, err := sundial.New[testConfig](parent, provider)
+		client, err := sundial.New[testConfig](parent, provider, sundial.WithLogger[testConfig](logger))
 		require.NoError(t, err)
 		entry := client.GetEntry()
 		closed := make(chan struct{})
 		go func() { client.Close(); close(closed) }()
 		<-provider.canceled
+		time.Sleep(6 * time.Second)
 		synctest.Wait()
 		select {
 		case <-closed:
@@ -61,6 +68,11 @@ func TestCloseWaitsForWatcherAndPreservesParent(t *testing.T) {
 		assert.PanicsWithValue(t, sundial.ErrClosed, func() { client.Get() })
 		assert.PanicsWithValue(t, sundial.ErrClosed, func() { client.GetEntry() })
 		client.Close()
+		logs := output.String()
+		assert.Equal(t, 1, strings.Count(logs, `level=INFO msg="closing sundial client"`))
+		assert.Equal(t, 1, strings.Count(logs, `level=INFO msg="closed sundial client"`))
+		assert.Equal(t, 1, strings.Count(logs, `level=WARN msg="waiting for automatic reload to stop"`))
+		assert.NotContains(t, logs, "level=ERROR")
 	})
 }
 

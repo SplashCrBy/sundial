@@ -188,3 +188,9 @@ Providers must honor Watch context cancellation for shutdown to complete.
 Reload callbacks run synchronously on the watcher goroutine. Do not call `Close`
 from `OnChange`, `OnError`, or a provider's `Watch` method: signal the owner to
 close the client after the callback returns instead.
+
+With `WithLogger[Config](logger)`, `Close` logs its start and completion at Info,
+including the elapsed duration on completion. If the watcher has not exited
+after five seconds, it logs one Warn and continues waiting. This is a diagnostic
+warning, not a shutdown timeout. Repeated or concurrent Close calls emit these
+records only once. Logging remains disabled unless a logger is supplied.
