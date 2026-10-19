@@ -41,8 +41,8 @@ func TestCloseWaitsForWatcherAndPreservesParent(t *testing.T) {
 		}
 		client, err := sundial.New[testConfig](parent, provider)
 		require.NoError(t, err)
-		closed := make(chan error, 1)
-		go func() { closed <- client.Close() }()
+		closed := make(chan struct{})
+		go func() { client.Close(); close(closed) }()
 		<-provider.canceled
 		synctest.Wait()
 		select {
@@ -52,10 +52,10 @@ func TestCloseWaitsForWatcherAndPreservesParent(t *testing.T) {
 		}
 		require.NoError(t, parent.Err())
 		close(provider.release)
-		require.NoError(t, <-closed)
+		<-closed
 		assert.Equal(t, 7, client.Get().Counter)
 		assert.Equal(t, 7, client.GetEntry().Value.Counter)
-		require.NoError(t, client.Close())
+		client.Close()
 	})
 }
 
@@ -66,7 +66,7 @@ func TestCloseStopsPolling(t *testing.T) {
 		client, err := sundial.New[testConfig](t.Context(), provider)
 		require.NoError(t, err)
 		synctest.Wait()
-		require.NoError(t, client.Close())
+		client.Close()
 		reads := provider.GetCount()
 		provider.SetData([]byte(`{"counter":2}`))
 		time.Sleep(time.Minute)
@@ -85,10 +85,10 @@ func TestCloseConcurrentStaticClient(t *testing.T) {
 		require.NoError(t, err)
 		var group sync.WaitGroup
 		for range 8 {
-			group.Go(func() { assert.NoError(t, client.Close()) })
+			group.Go(client.Close)
 		}
 		group.Wait()
-		assert.NoError(t, client.Close())
+		client.Close()
 	})
 }
 
@@ -103,7 +103,7 @@ func TestCloseAfterParentCancellation(t *testing.T) {
 		synctest.Wait()
 		cancel()
 		<-provider.stopped
-		require.NoError(t, client.Close())
+		client.Close()
 	})
 }
 

@@ -66,16 +66,14 @@ func New[T any](ctx context.Context, provider Provider, opts ...Option[T]) (*Cli
 	return s, nil
 }
 
-// Close stops automatic reloads and waits for the background watcher to exit.
-// It is safe to call repeatedly or concurrently and does not cancel the parent
-// context. Close always returns nil. Reads retain the last snapshot; explicit
-// operations such as Update and Reload still use their own contexts.
-// Close must not be called synchronously from a provider Watch method or an
-// OnChange/OnError callback, because it waits for that same watcher to return.
-func (s *Client[T]) Close() error {
+// Close stops automatic reloads and waits for the watcher to exit.
+// Repeated and concurrent calls are safe. Reads and explicit operations remain
+// available. The parent context is unaffected.
+// Do not call Close synchronously from Watch or reload callbacks: it waits for
+// that same watcher to return.
+func (s *Client[T]) Close() {
 	s.cancelWatch()
 	<-s.watchDone
-	return nil
 }
 
 // Get returns the current shared read-only configuration without encoding or decoding.

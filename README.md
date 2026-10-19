@@ -175,7 +175,7 @@ it is no longer needed.
 
 Call `Close()` when a client is no longer needed. It cancels and waits for its
 automatic reload goroutine, including native provider watchers and fallback
-polling. Repeated and concurrent calls are safe and return nil. The parent
+polling. Repeated and concurrent calls are safe. The parent
 context is unaffected; canceling that context also stops automatic reloads.
 
 `Get` and `GetEntry` continue to return the last accepted snapshot. Explicit
