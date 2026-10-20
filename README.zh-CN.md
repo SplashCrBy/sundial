@@ -67,11 +67,7 @@ func main() {
         log.Fatal(err)
     }
 
-    value, err := store.Get()
-    if err != nil {
-        log.Fatal(err)
-    }
-    fmt.Println(value.Port)
+    fmt.Println(store.Get().Port)
 
     if _, err := store.Update(ctx, func(config *Config) error {
         config.Port = 9090
@@ -82,19 +78,15 @@ func main() {
 }
 ```
 
-`Get() (T, error)` 直接返回当前配置。需要配对的配置与版本时，使用 `GetEntry() (Entry[T], error)`，
+`Get() T` 直接返回当前配置。需要配对的配置与版本时，使用 `GetEntry() Entry[T]`，
 通过一次原子读取取得二者：
 
 ```go
-entry, err := store.GetEntry()
-if err != nil {
-    log.Fatal(err)
-}
+entry := store.GetEntry()
 fmt.Println(entry.Value.Port, entry.Revision.ID)
 ```
 
-两个方法都返回共享的只读值，不进行编码、解码或深拷贝。
-关闭后返回零值和 `ErrClosed`，不会 panic；调用方需要检查 error。
+两个方法都返回共享的只读值，无 error 返回，也不进行编码、解码或深拷贝。
 不要修改返回的配置，包括其中的 map、slice 和指针。Go 不强制只读，需要
 调用方遵守这个约定。`Update`、`RestoreRevision` 成功后返回的结果，以及 `OnChange` 回调
 收到的配置，同样是共享只读快照。
@@ -103,16 +95,15 @@ fmt.Println(entry.Value.Port, entry.Revision.ID)
 
 | API | 返回值或回调签名 |
 | --- | --- |
-| `Get()` | `(T, error)` |
-| `GetEntry()` | `(Entry[T], error)` |
+| `Get()` | `T` |
+| `GetEntry()` | `Entry[T]` |
 | `Update(ctx, modify)` | `(Entry[T], error)` |
 | `RestoreRevision(ctx, targetID, currentID)` | `(Entry[T], error)` |
 | `GetRevision(ctx, revisionID)` | `(T, Revision, error)` |
 | `WithOnChange(callback)` | `func(Entry[T])` |
 
-旧 API 迁移：将 `Get().Value` 改为 `value, err := Get()`；原先需要完整 Entry
-或版本信息的调用改用 `entry, err := GetEntry()`。两个读取方法现在都返回 error，
-调用方需要处理。`Update`、`RestoreRevision`、`WithOnChange` 和 `GetRevision`
+旧 API 迁移：将 `Get().Value` 改为 `Get()`；原先需要完整 Entry 或版本信息的调用
+改用 `GetEntry()`。`Update`、`RestoreRevision`、`WithOnChange` 和 `GetRevision`
 的签名保持不变。
 
 普通修改直接调用 `Update(ctx, func(*T) error)`，不需要先调用 `Get`。它是 Client
@@ -144,11 +135,7 @@ client, err := sundial.New[Config](ctx, provider)
 if err != nil {
     log.Fatal(err)
 }
-value, err := client.Get()
-    if err != nil {
-        log.Fatal(err)
-    }
-    fmt.Println(value.Port)
+fmt.Println(client.Get().Port)
 ```
 
 Provider 复制传入的文档，返回零值版本，沿用其他 Provider 相同的客户端和 Codec
@@ -169,3 +156,11 @@ Provider 不访问外部存储。Watcher 通知一次后等待 context 取消，
 ## 许可证
 
 [MIT](LICENSE)
+
+### 关闭后的读取
+
+`Close()` 停止自动刷新并等待 watcher 退出。关闭后，`Get()` 和 `GetEntry()`
+仍返回最新保留的快照，每次调用都会记录包含 `ErrClosed` 的 Error 日志；
+不返回 error，也不会 panic。该快照不再自动刷新，关闭前已经开始的操作仍可能完成。
+`Update`、`Reload`、`GetRevision`、`ListRevisions` 和 `RestoreRevision`
+在关闭后返回 `ErrClosed`。Provider 不受 Client 关闭影响。

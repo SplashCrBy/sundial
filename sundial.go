@@ -72,7 +72,8 @@ func New[T any](ctx context.Context, provider Provider, opts ...Option[T]) (*Cli
 	return s, nil
 }
 
-// Close makes the client unusable, stops automatic reloads and waits for the watcher to exit.
+// Close stops automatic reloads and waits for the watcher to exit.
+// Snapshot reads remain available; writes, reloads and history operations are rejected.
 // Repeated and concurrent calls are safe. Operations already in progress may complete.
 // The parent context and provider are unaffected.
 // A slow shutdown logs a warning after five seconds and continues waiting.
@@ -106,23 +107,22 @@ func (s *Client[T]) Close() {
 // Get returns the current shared read-only configuration without encoding or decoding.
 // Callers must not modify its maps, slices, pointers or other referenced data.
 // Use GetEntry when the configuration and its revision are needed together.
-// Get returns the zero value and ErrClosed after Close.
-func (s *Client[T]) Get() (T, error) {
+// After Close, Get logs ErrClosed and returns the latest retained snapshot.
+func (s *Client[T]) Get() T {
 	if s.closed.Load() {
-		var zero T
-		return zero, ErrClosed
+		s.logger.Error("read configuration after close", "error", ErrClosed)
 	}
-	return s.snapshot.Load().value, nil
+	return s.snapshot.Load().value
 }
 
 // GetEntry returns the current configuration and its revision from one atomic read.
 // Its Value follows the same shared read-only contract as Get.
-// GetEntry returns a zero Entry and ErrClosed after Close.
-func (s *Client[T]) GetEntry() (Entry[T], error) {
+// After Close, GetEntry logs ErrClosed and returns the latest retained snapshot.
+func (s *Client[T]) GetEntry() Entry[T] {
 	if s.closed.Load() {
-		return Entry[T]{}, ErrClosed
+		s.logger.Error("read configuration entry after close", "error", ErrClosed)
 	}
-	return s.entry(s.snapshot.Load()), nil
+	return s.entry(s.snapshot.Load())
 }
 
 // Update decodes the current snapshot's source document into an independent draft, applies modify,

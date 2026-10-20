@@ -68,10 +68,7 @@ func run() error {
 		return err
 	}
 
-	entry, err := store.GetEntry()
-	if err != nil {
-		return fmt.Errorf("read configuration snapshot: %w", err)
-	}
+	entry := store.GetEntry()
 	printEntry("loaded", entry)
 
 	if *port >= 0 {
