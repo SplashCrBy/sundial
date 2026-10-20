@@ -179,7 +179,7 @@ polling. Repeated and concurrent calls are safe. The parent
 context is unaffected; canceling that context also stops automatic reloads.
 
 After `Close`, `Get` and `GetEntry` return the latest retained snapshot and log
-`ErrClosed` at Error level on each call. Their signatures do not return errors.
+`ErrClosed` at Warn level on each call. Their signatures do not return errors.
 The snapshot is no longer automatically refreshed. `Update`, `Reload`,
 `GetRevision`, `ListRevisions`, and `RestoreRevision` return `ErrClosed`.
 Previously returned configuration values remain valid. Operations already in

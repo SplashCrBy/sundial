@@ -72,7 +72,9 @@ func TestCloseWaitsForWatcherAndPreservesParent(t *testing.T) {
 		assert.Equal(t, 1, strings.Count(logs, `level=INFO msg="closing sundial client"`))
 		assert.Equal(t, 1, strings.Count(logs, `level=INFO msg="closed sundial client"`))
 		assert.Equal(t, 1, strings.Count(logs, `level=WARN msg="waiting for automatic reload to stop"`))
-		assert.Equal(t, 2, strings.Count(logs, "level=ERROR"))
+		assert.Equal(t, 1, strings.Count(logs, `level=WARN msg="read configuration after close"`))
+		assert.Equal(t, 1, strings.Count(logs, `level=WARN msg="read configuration entry after close"`))
+		assert.NotContains(t, logs, "level=ERROR")
 		assert.Contains(t, logs, sundial.ErrClosed.Error())
 	})
 }

@@ -110,7 +110,7 @@ func (s *Client[T]) Close() {
 // After Close, Get logs ErrClosed and returns the latest retained snapshot.
 func (s *Client[T]) Get() T {
 	if s.closed.Load() {
-		s.logger.Error("read configuration after close", "error", ErrClosed)
+		s.logger.Warn("read configuration after close", "error", ErrClosed)
 	}
 	return s.snapshot.Load().value
 }
@@ -120,7 +120,7 @@ func (s *Client[T]) Get() T {
 // After Close, GetEntry logs ErrClosed and returns the latest retained snapshot.
 func (s *Client[T]) GetEntry() Entry[T] {
 	if s.closed.Load() {
-		s.logger.Error("read configuration entry after close", "error", ErrClosed)
+		s.logger.Warn("read configuration entry after close", "error", ErrClosed)
 	}
 	return s.entry(s.snapshot.Load())
 }
