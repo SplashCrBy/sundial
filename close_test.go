@@ -20,7 +20,7 @@ import (
 // Failure cases: Close returns before Watch exits; canceling one client cancels
 // its parent; concurrent/repeated Close panics or blocks; polling continues after
 // Close; parent cancellation prevents Close from returning; failed New starts Watch;
-// reads or provider operations succeed after Close; a queued write bypasses closure;
+// reads panic or succeed after Close; provider operations succeed after Close; a queued write bypasses closure;
 // an already returned snapshot is invalidated by Close; slow Close is silent or
 // returns early; repeated Close duplicates lifecycle logs.
 type delayedCloseWatcher struct {
@@ -50,7 +50,8 @@ func TestCloseWaitsForWatcherAndPreservesParent(t *testing.T) {
 		}
 		client, err := sundial.New[testConfig](parent, provider, sundial.WithLogger[testConfig](logger))
 		require.NoError(t, err)
-		entry := client.GetEntry()
+		entry, err := client.GetEntry()
+		require.NoError(t, err)
 		closed := make(chan struct{})
 		go func() { client.Close(); close(closed) }()
 		<-provider.canceled
@@ -65,8 +66,12 @@ func TestCloseWaitsForWatcherAndPreservesParent(t *testing.T) {
 		close(provider.release)
 		<-closed
 		assert.Equal(t, 7, entry.Value.Counter)
-		assert.PanicsWithValue(t, sundial.ErrClosed, func() { client.Get() })
-		assert.PanicsWithValue(t, sundial.ErrClosed, func() { client.GetEntry() })
+		value, readErr := client.Get()
+		require.ErrorIs(t, readErr, sundial.ErrClosed)
+		assert.Equal(t, testConfig{}, value)
+		closedEntry, readErr := client.GetEntry()
+		require.ErrorIs(t, readErr, sundial.ErrClosed)
+		assert.Equal(t, sundial.Entry[testConfig]{}, closedEntry)
 		client.Close()
 		logs := output.String()
 		assert.Equal(t, 1, strings.Count(logs, `level=INFO msg="closing sundial client"`))

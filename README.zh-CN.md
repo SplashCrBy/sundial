@@ -67,7 +67,11 @@ func main() {
         log.Fatal(err)
     }
 
-    fmt.Println(store.Get().Port)
+    value, err := store.Get()
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(value.Port)
 
     if _, err := store.Update(ctx, func(config *Config) error {
         config.Port = 9090
@@ -78,15 +82,19 @@ func main() {
 }
 ```
 
-`Get() T` 直接返回当前配置。需要配对的配置与版本时，使用 `GetEntry() Entry[T]`，
+`Get() (T, error)` 直接返回当前配置。需要配对的配置与版本时，使用 `GetEntry() (Entry[T], error)`，
 通过一次原子读取取得二者：
 
 ```go
-entry := store.GetEntry()
+entry, err := store.GetEntry()
+if err != nil {
+    log.Fatal(err)
+}
 fmt.Println(entry.Value.Port, entry.Revision.ID)
 ```
 
-两个方法都返回共享的只读值，无 error 返回，也不进行编码、解码或深拷贝。
+两个方法都返回共享的只读值，不进行编码、解码或深拷贝。
+关闭后返回零值和 `ErrClosed`，不会 panic；调用方需要检查 error。
 不要修改返回的配置，包括其中的 map、slice 和指针。Go 不强制只读，需要
 调用方遵守这个约定。`Update`、`RestoreRevision` 成功后返回的结果，以及 `OnChange` 回调
 收到的配置，同样是共享只读快照。
@@ -95,15 +103,16 @@ fmt.Println(entry.Value.Port, entry.Revision.ID)
 
 | API | 返回值或回调签名 |
 | --- | --- |
-| `Get()` | `T` |
-| `GetEntry()` | `Entry[T]` |
+| `Get()` | `(T, error)` |
+| `GetEntry()` | `(Entry[T], error)` |
 | `Update(ctx, modify)` | `(Entry[T], error)` |
 | `RestoreRevision(ctx, targetID, currentID)` | `(Entry[T], error)` |
 | `GetRevision(ctx, revisionID)` | `(T, Revision, error)` |
 | `WithOnChange(callback)` | `func(Entry[T])` |
 
-旧 API 迁移：将 `Get().Value` 改为 `Get()`；原先需要完整 Entry 或版本信息的调用
-改用 `GetEntry()`。`Update`、`RestoreRevision`、`WithOnChange` 和 `GetRevision`
+旧 API 迁移：将 `Get().Value` 改为 `value, err := Get()`；原先需要完整 Entry
+或版本信息的调用改用 `entry, err := GetEntry()`。两个读取方法现在都返回 error，
+调用方需要处理。`Update`、`RestoreRevision`、`WithOnChange` 和 `GetRevision`
 的签名保持不变。
 
 普通修改直接调用 `Update(ctx, func(*T) error)`，不需要先调用 `Get`。它是 Client
@@ -135,7 +144,11 @@ client, err := sundial.New[Config](ctx, provider)
 if err != nil {
     log.Fatal(err)
 }
-fmt.Println(client.Get().Port)
+value, err := client.Get()
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(value.Port)
 ```
 
 Provider 复制传入的文档，返回零值版本，沿用其他 Provider 相同的客户端和 Codec

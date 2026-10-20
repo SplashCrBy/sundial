@@ -106,22 +106,23 @@ func (s *Client[T]) Close() {
 // Get returns the current shared read-only configuration without encoding or decoding.
 // Callers must not modify its maps, slices, pointers or other referenced data.
 // Use GetEntry when the configuration and its revision are needed together.
-// Get panics with ErrClosed after Close.
-func (s *Client[T]) Get() T {
+// Get returns the zero value and ErrClosed after Close.
+func (s *Client[T]) Get() (T, error) {
 	if s.closed.Load() {
-		panic(ErrClosed)
+		var zero T
+		return zero, ErrClosed
 	}
-	return s.snapshot.Load().value
+	return s.snapshot.Load().value, nil
 }
 
 // GetEntry returns the current configuration and its revision from one atomic read.
 // Its Value follows the same shared read-only contract as Get.
-// GetEntry panics with ErrClosed after Close.
-func (s *Client[T]) GetEntry() Entry[T] {
+// GetEntry returns a zero Entry and ErrClosed after Close.
+func (s *Client[T]) GetEntry() (Entry[T], error) {
 	if s.closed.Load() {
-		panic(ErrClosed)
+		return Entry[T]{}, ErrClosed
 	}
-	return s.entry(s.snapshot.Load())
+	return s.entry(s.snapshot.Load()), nil
 }
 
 // Update decodes the current snapshot's source document into an independent draft, applies modify,

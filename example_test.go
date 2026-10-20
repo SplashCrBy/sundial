@@ -22,7 +22,12 @@ func ExampleNew() {
 		panic(err)
 	}
 	defer client.Close()
-	fmt.Println(client.Get().Port)
+	current, err := client.Get()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println(current.Port)
 
 	// Output: 8080
 }
@@ -40,7 +45,11 @@ func ExampleClient_Update_port() {
 	if err != nil {
 		panic(err)
 	}
-	entry := client.GetEntry()
+	entry, err := client.GetEntry()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 	saved, err := client.Update(ctx, func(config *Config) error {
 		config.Port = 9090
 		return nil
@@ -48,7 +57,11 @@ func ExampleClient_Update_port() {
 	if err != nil {
 		panic(err)
 	}
-	current := client.GetEntry()
+	current, err := client.GetEntry()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 	fmt.Println(saved.Value.Port)
 	fmt.Println(saved.Revision.ID != entry.Revision.ID)
 	fmt.Println(current.Revision.ID == saved.Revision.ID)
@@ -92,7 +105,12 @@ func ExampleClient_Update_conflict() {
 		return nil
 	})
 	fmt.Println(sundial.IsConflict(err))
-	fmt.Println(client.Get().Port)
+	current, err := client.Get()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println(current.Port)
 
 	// Output:
 	// true
@@ -120,7 +138,12 @@ func ExampleClient_Update() {
 		panic(err)
 	}
 	fmt.Println(saved.Value.Labels["region"])
-	fmt.Println(client.Get().Labels["region"])
+	current, err := client.Get()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println(current.Labels["region"])
 
 	// Output:
 	// west

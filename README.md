@@ -69,7 +69,11 @@ func main() {
 
     defer store.Close()
 
-    fmt.Println(store.Get().Port)
+    value, err := store.Get()
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(value.Port)
 
     if _, err := store.Update(ctx, func(config *Config) error {
         config.Port = 9090
@@ -80,16 +84,19 @@ func main() {
 }
 ```
 
-`Get() T` returns the current configuration directly. Use `GetEntry() Entry[T]`
+`Get() (T, error)` returns the current configuration directly. Use `GetEntry() (Entry[T], error)`
 when you need the configuration and its revision paired from one atomic read:
 
 ```go
-entry := store.GetEntry()
+entry, err := store.GetEntry()
+if err != nil {
+    log.Fatal(err)
+}
 fmt.Println(entry.Value.Port, entry.Revision.ID)
 ```
 
-Both methods return shared read-only values without an error return, encoding,
-decoding or deep copying. Do not modify the returned configuration,
+Both methods return shared read-only values without encoding, decoding or deep copying.
+After Close, they return a zero value and ErrClosed; they do not panic. Do not modify the returned configuration,
 including nested maps, slices and pointers. Go does not enforce this read-only
 contract; callers must follow it. Successful `Update` and `RestoreRevision` results and values
 passed to `OnChange` have the same shared read-only contract.
@@ -98,15 +105,16 @@ Ordinary reads return the configuration directly; versioned current state uses `
 
 | API | Return values or callback |
 | --- | --- |
-| `Get()` | `T` |
-| `GetEntry()` | `Entry[T]` |
+| `Get()` | `(T, error)` |
+| `GetEntry()` | `(Entry[T], error)` |
 | `Update(ctx, modify)` | `(Entry[T], error)` |
 | `RestoreRevision(ctx, targetID, currentID)` | `(Entry[T], error)` |
 | `GetRevision(ctx, revisionID)` | `(T, Revision, error)` |
 | `WithOnChange(callback)` | `func(Entry[T])` |
 
-Migration from the previous API: replace `Get().Value` with `Get()`, and use
-`GetEntry()` wherever you previously needed the complete entry or revision.
+Migration from the previous API: replace `Get().Value` with `value, err := Get()`,
+and use `entry, err := GetEntry()` wherever you previously needed the complete
+entry or revision. Both read methods now return an error that callers must handle.
 `Update`, `RestoreRevision`, `WithOnChange` and `GetRevision` keep their existing signatures.
 
 For ordinary edits, call `Update(ctx, func(*T) error)` directly; no preceding `Get`
@@ -146,7 +154,11 @@ if err != nil {
     log.Fatal(err)
 }
 defer client.Close()
-fmt.Println(client.Get().Port)
+value, err := client.Get()
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(value.Port)
 ```
 
 The provider copies the supplied document and returns a zero revision. It uses
@@ -178,8 +190,9 @@ automatic reload goroutine, including native provider watchers and fallback
 polling. Repeated and concurrent calls are safe. The parent
 context is unaffected; canceling that context also stops automatic reloads.
 
-After `Close`, `Get` and `GetEntry` panic with `ErrClosed`; `Update`, `Reload`,
-`GetRevision`, `ListRevisions`, and `RestoreRevision` return `ErrClosed`.
+After `Close`, `Get`, `GetEntry`, `Update`, `Reload`, `GetRevision`,
+`ListRevisions`, and `RestoreRevision` return `ErrClosed`. Reads return zero values
+alongside the error and do not panic.
 Previously returned configuration values remain valid. Operations already in
 progress may complete; queued writes and reloads check closure after acquiring
 the write lock. `Close` does not close the provider.
